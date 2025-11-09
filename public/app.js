@@ -33,6 +33,40 @@ const rtcConfiguration = {
     ]
 };
 
+// 保存用户名到localStorage
+function saveUsername(username) {
+    try {
+        localStorage.setItem('chat_username', username);
+    } catch (error) {
+        console.error('保存用户名失败:', error);
+    }
+}
+
+// 加载用户名
+function loadUsername() {
+    try {
+        return localStorage.getItem('chat_username') || '';
+    } catch (error) {
+        return '';
+    }
+}
+
+// 页面加载时恢复用户名和消息
+function initializeApp() {
+    // 恢复用户名
+    const savedUsername = loadUsername();
+    if (savedUsername && usernameInput) {
+        usernameInput.value = savedUsername;
+    }
+}
+
+// DOM加载完成后初始化
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initializeApp);
+} else {
+    initializeApp();
+}
+
 // 加入聊天
 joinBtn.addEventListener('click', () => {
     const username = usernameInput.value.trim();
@@ -40,7 +74,18 @@ joinBtn.addEventListener('click', () => {
         currentUsername = username;
         isJoined = true;
         
-        socket.emit('join-room', username);
+        // 保存用户名
+        saveUsername(username);
+        
+        // 确保Socket已连接
+        if (!socket.connected) {
+            socket.connect();
+            socket.once('connect', () => {
+                socket.emit('join-room', username);
+            });
+        } else {
+            socket.emit('join-room', username);
+        }
         
         usernameInput.disabled = true;
         joinBtn.disabled = true;
@@ -53,10 +98,54 @@ joinBtn.addEventListener('click', () => {
     }
 });
 
-// Socket连接成功后设置用户ID
+// Socket连接管理
+let reconnectAttempts = 0;
+const MAX_RECONNECT_ATTEMPTS = 5;
+
 socket.on('connect', () => {
     currentUserId = socket.id;
+    reconnectAttempts = 0;
     console.log('Socket连接成功, ID:', socket.id);
+    
+    // 如果之前已加入，自动重新加入
+    if (isJoined && currentUsername) {
+        socket.emit('join-room', currentUsername);
+        addMessage('系统', '连接已恢复', true);
+    }
+});
+
+socket.on('disconnect', (reason) => {
+    console.log('Socket断开连接:', reason);
+    
+    if (reason === 'io server disconnect') {
+        // 服务器主动断开，需要手动重连
+        socket.connect();
+    } else {
+        // 网络问题，自动重连
+        addMessage('系统', '连接断开，正在重连...', false);
+    }
+});
+
+socket.on('connect_error', (error) => {
+    console.error('Socket连接错误:', error);
+    reconnectAttempts++;
+    
+    if (reconnectAttempts <= MAX_RECONNECT_ATTEMPTS) {
+        addMessage('系统', `连接失败，正在重试 (${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})...`, false);
+    } else {
+        addMessage('系统', '连接失败次数过多，请刷新页面', false);
+    }
+});
+
+socket.on('reconnect', (attemptNumber) => {
+    console.log('Socket重连成功，尝试次数:', attemptNumber);
+    reconnectAttempts = 0;
+    addMessage('系统', '连接已恢复', true);
+    
+    // 重新加入房间
+    if (isJoined && currentUsername) {
+        socket.emit('join-room', currentUsername);
+    }
 });
 
 // 全屏功能
@@ -165,22 +254,107 @@ function sendMessage() {
     }
 }
 
+// 消息存储管理（使用localStorage）
+const MESSAGES_STORAGE_KEY = 'chat_messages';
+const MAX_STORED_MESSAGES = 500;
+
+// 从localStorage加载消息
+function loadMessagesFromStorage() {
+    try {
+        const stored = localStorage.getItem(MESSAGES_STORAGE_KEY);
+        return stored ? JSON.parse(stored) : [];
+    } catch (error) {
+        console.error('加载本地消息失败:', error);
+        return [];
+    }
+}
+
+// 保存消息到localStorage
+function saveMessageToStorage(message) {
+    try {
+        let messages = loadMessagesFromStorage();
+        messages.push(message);
+        // 只保留最近500条消息
+        if (messages.length > MAX_STORED_MESSAGES) {
+            messages = messages.slice(-MAX_STORED_MESSAGES);
+        }
+        localStorage.setItem(MESSAGES_STORAGE_KEY, JSON.stringify(messages));
+    } catch (error) {
+        console.error('保存本地消息失败:', error);
+    }
+}
+
+// 清空本地消息
+function clearMessagesStorage() {
+    try {
+        localStorage.removeItem(MESSAGES_STORAGE_KEY);
+    } catch (error) {
+        console.error('清空本地消息失败:', error);
+    }
+}
+
+// 恢复消息（在收到服务器消息后调用）
+function restoreMessages() {
+    if (!chatMessages) return;
+    
+    const messages = loadMessagesFromStorage();
+    if (messages.length > 0 && chatMessages.children.length === 0) {
+        messages.forEach(msg => {
+            const isOwn = msg.username === currentUsername;
+            addMessage(msg.username, msg.message, isOwn, msg.timestamp, false);
+        });
+    }
+}
+
 // 接收历史消息
 socket.on('history-messages', (messages) => {
-    messages.forEach(msg => {
-        const isOwn = msg.username === currentUsername;
-        addMessage(msg.username, msg.message, isOwn, msg.timestamp);
+    // 先清空现有消息（避免重复）
+    chatMessages.innerHTML = '';
+    
+    // 合并服务器消息和本地消息
+    const localMessages = loadMessagesFromStorage();
+    const allMessages = [...localMessages, ...messages];
+    
+    // 去重（基于时间戳和内容）
+    const uniqueMessages = [];
+    const seen = new Set();
+    allMessages.forEach(msg => {
+        const key = `${msg.username}-${msg.message}-${msg.timestamp}`;
+        if (!seen.has(key)) {
+            seen.add(key);
+            uniqueMessages.push(msg);
+        }
     });
+    
+    // 按时间排序
+    uniqueMessages.sort((a, b) => {
+        const timeA = new Date(a.date || a.timestamp).getTime();
+        const timeB = new Date(b.date || b.timestamp).getTime();
+        return timeA - timeB;
+    });
+    
+    // 显示消息
+    uniqueMessages.forEach(msg => {
+        const isOwn = msg.username === currentUsername;
+        addMessage(msg.username, msg.message, isOwn, msg.timestamp, false);
+    });
+    
+    // 更新本地存储
+    if (uniqueMessages.length > 0) {
+        localStorage.setItem(MESSAGES_STORAGE_KEY, JSON.stringify(uniqueMessages.slice(-MAX_STORED_MESSAGES)));
+    }
 });
 
 // 接收聊天消息
 socket.on('chat-message', (data) => {
     const isOwn = data.username === currentUsername;
     addMessage(data.username, data.message, isOwn, data.timestamp);
+    // 保存到本地存储
+    saveMessageToStorage(data);
 });
 
 // 添加消息到聊天窗口
-function addMessage(username, message, isOwn, timestamp = '') {
+function addMessage(username, message, isOwn, timestamp = '', scroll = true) {
     const messageDiv = document.createElement('div');
     messageDiv.className = `message ${isOwn ? 'message-own' : ''}`;
     
@@ -195,7 +369,13 @@ function addMessage(username, message, isOwn, timestamp = '') {
     messageDiv.appendChild(header);
     messageDiv.appendChild(content);
     chatMessages.appendChild(messageDiv);
-    chatMessages.scrollTop = chatMessages.scrollHeight;
+    
+    if (scroll) {
+        // 延迟滚动，确保DOM已更新
+        setTimeout(() => {
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        }, 100);
+    }
 }
 
 // 更新用户列表
@@ -261,19 +441,32 @@ startVideoBtn.addEventListener('click', async () => {
         };
         
         localStream = await navigator.mediaDevices.getUserMedia(constraints);
+        
+        // 确保视频元素已加载
         localVideo.srcObject = localStream;
         isVideoEnabled = true;
+        
+        // 监听视频加载
+        localVideo.onloadedmetadata = () => {
+            console.log('本地视频元数据加载完成');
+            localVideo.play().catch(err => {
+                console.error('播放本地视频失败:', err);
+            });
+        };
         
         startVideoBtn.disabled = true;
         stopVideoBtn.disabled = false;
         updateButtonStates();
         
         console.log('视频已开启，本地流轨道数:', localStream.getTracks().length);
+        localStream.getTracks().forEach(track => {
+            console.log('轨道:', track.kind, track.id, '状态:', track.readyState);
+        });
         
-        // 与所有其他用户建立连接
+        // 与所有其他用户建立连接（延迟确保流已准备好）
         setTimeout(() => {
             establishConnectionsWithOthers();
-        }, 500);
+        }, 1000);
     } catch (error) {
         console.error('无法获取视频流:', error);
         alert('无法访问摄像头，请检查权限设置');
@@ -392,33 +585,66 @@ function createPeerConnection(targetUserId, isInitiator = true) {
         });
     }
     
-    // 接收远程流 - 重要：使用addTransceiver确保能接收
+    // 接收远程流 - 优化处理
     peerConnection.ontrack = (event) => {
-        console.log('收到远程流:', event.track.kind, 'from', targetUserId);
-        const stream = event.streams[0];
+        console.log('收到远程流:', event.track.kind, 'from', targetUserId, event.track.id);
         
-        // 为每个用户创建独立的视频元素或合并流
+        // 创建新的媒体流或使用现有流
         if (!remoteVideo.srcObject) {
             remoteVideo.srcObject = new MediaStream();
         }
         
+        const remoteStream = remoteVideo.srcObject;
+        
         // 添加所有轨道
         event.streams.forEach(stream => {
             stream.getTracks().forEach(track => {
-                const existingTrack = remoteVideo.srcObject.getTracks().find(t => 
-                    t.id === track.id || (t.kind === track.kind && t.readyState === 'live')
+                // 检查是否已存在相同的轨道
+                const existingTrack = remoteStream.getTracks().find(t => 
+                    t.id === track.id
                 );
+                
                 if (!existingTrack) {
-                    remoteVideo.srcObject.addTrack(track);
-                    console.log('添加远程轨道:', track.kind);
+                    remoteStream.addTrack(track);
+                    console.log('添加远程轨道:', track.kind, track.id, '状态:', track.readyState);
+                    
+                    // 监听轨道状态变化
+                    track.onended = () => {
+                        console.log('远程轨道结束:', track.kind, track.id);
+                        remoteStream.removeTrack(track);
+                    };
+                    
+                    track.onmute = () => {
+                        console.log('远程轨道静音:', track.kind, track.id);
+                    };
+                    
+                    track.onunmute = () => {
+                        console.log('远程轨道取消静音:', track.kind, track.id);
+                    };
                 }
             });
         });
         
-        // 显示全屏按钮
-        if (fullscreenBtn && remoteVideo.srcObject.getVideoTracks().length > 0) {
-            fullscreenBtn.style.display = 'block';
+        // 确保视频元素播放
+        if (remoteVideo.srcObject.getVideoTracks().length > 0) {
+            remoteVideo.play().catch(err => {
+                console.error('播放远程视频失败:', err);
+            });
+            
+            // 显示全屏按钮
+            if (fullscreenBtn) {
+                fullscreenBtn.style.display = 'block';
+            }
         }
+        
+        // 添加视频加载事件
+        remoteVideo.onloadedmetadata = () => {
+            console.log('远程视频元数据加载完成');
+        };
+        
+        remoteVideo.oncanplay = () => {
+            console.log('远程视频可以播放');
+        };
     };
     
     // ICE 候选
@@ -435,28 +661,50 @@ function createPeerConnection(targetUserId, isInitiator = true) {
     
     // ICE 连接状态
     peerConnection.oniceconnectionstatechange = () => {
-        console.log(`ICE 连接状态 (${targetUserId}):`, peerConnection.iceConnectionState);
-        if (peerConnection.iceConnectionState === 'failed') {
-            // 尝试重新连接
+        const state = peerConnection.iceConnectionState;
+        console.log(`ICE 连接状态 (${targetUserId}):`, state);
+        
+        if (state === 'failed') {
+            console.log('ICE连接失败，尝试重启ICE');
             peerConnection.restartIce();
+        } else if (state === 'disconnected') {
+            console.log('ICE连接断开');
+        } else if (state === 'connected' || state === 'completed') {
+            console.log('ICE连接成功:', state);
         }
+    };
+    
+    // ICE 收集状态
+    peerConnection.onicegatheringstatechange = () => {
+        console.log(`ICE收集状态 (${targetUserId}):`, peerConnection.iceGatheringState);
     };
     
     // 连接状态变化
     peerConnection.onconnectionstatechange = () => {
-        console.log(`连接状态 (${targetUserId}):`, peerConnection.connectionState);
-        if (peerConnection.connectionState === 'failed' || 
-            peerConnection.connectionState === 'disconnected') {
-            // 尝试重新连接
-            setTimeout(() => {
-                if (peerConnection.connectionState === 'failed') {
-                    peerConnections.delete(targetUserId);
-                    if (localStream && isVideoEnabled) {
+        const state = peerConnection.connectionState;
+        console.log(`连接状态 (${targetUserId}):`, state);
+        
+        if (state === 'failed') {
+            console.log('连接失败，尝试重新连接');
+            // 关闭旧连接
+            peerConnection.close();
+            peerConnections.delete(targetUserId);
+            
+            // 如果本地流还存在，尝试重新连接
+            if (localStream && (isVideoEnabled || isAudioEnabled)) {
+                setTimeout(() => {
+                    if (!peerConnections.has(targetUserId)) {
+                        console.log('重新建立连接:', targetUserId);
                         createPeerConnection(targetUserId, true);
                     }
-                }
-            }, 1000);
-        } else if (peerConnection.connectionState === 'closed') {
+                }, 2000);
+            }
+        } else if (state === 'disconnected') {
+            console.log('连接断开');
+        } else if (state === 'connected') {
+            console.log('连接成功');
+        } else if (state === 'closed') {
+            console.log('连接已关闭');
             peerConnections.delete(targetUserId);
         }
     };
@@ -499,23 +747,38 @@ socket.on('offer', async (data) => {
         
         // 设置远程流接收处理
         peerConnection.ontrack = (event) => {
-            console.log('收到远程流:', event.track.kind, 'from', data.sender);
+            console.log('收到远程流 (offer处理):', event.track.kind, 'from', data.sender);
+            
             if (!remoteVideo.srcObject) {
                 remoteVideo.srcObject = new MediaStream();
             }
+            
+            const remoteStream = remoteVideo.srcObject;
             event.streams.forEach(stream => {
                 stream.getTracks().forEach(track => {
-                    const existingTrack = remoteVideo.srcObject.getTracks().find(t => t.id === track.id);
+                    const existingTrack = remoteStream.getTracks().find(t => t.id === track.id);
                     if (!existingTrack) {
-                        remoteVideo.srcObject.addTrack(track);
+                        remoteStream.addTrack(track);
                         console.log('添加远程轨道:', track.kind, track.id);
+                        
+                        // 监听轨道状态
+                        track.onended = () => {
+                            console.log('远程轨道结束:', track.kind);
+                            remoteStream.removeTrack(track);
+                        };
                     }
                 });
             });
             
-            // 显示全屏按钮
-            if (fullscreenBtn && remoteVideo.srcObject.getVideoTracks().length > 0) {
-                fullscreenBtn.style.display = 'block';
+            // 确保视频播放
+            if (remoteStream.getVideoTracks().length > 0) {
+                remoteVideo.play().catch(err => {
+                    console.error('播放远程视频失败:', err);
+                });
+                
+                if (fullscreenBtn) {
+                    fullscreenBtn.style.display = 'block';
+                }
             }
         };
         
@@ -591,6 +854,26 @@ socket.on('ice-candidate', async (data) => {
     }
 });
 
+// 页面可见性变化时处理
+document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+        console.log('页面隐藏');
+    } else {
+        console.log('页面显示');
+        // 页面重新显示时，检查连接状态
+        if (remoteVideo.srcObject) {
+            remoteVideo.play().catch(err => {
+                console.error('恢复播放远程视频失败:', err);
+            });
+        }
+        if (localVideo.srcObject) {
+            localVideo.play().catch(err => {
+                console.error('恢复播放本地视频失败:', err);
+            });
+        }
+    }
+});
+
 // 页面关闭时清理
 window.addEventListener('beforeunload', () => {
     if (localStream) {
@@ -602,4 +885,35 @@ window.addEventListener('beforeunload', () => {
     peerConnections.clear();
     socket.disconnect();
 });
+
+// 定期检查视频流状态
+setInterval(() => {
+    // 检查本地视频
+    if (localVideo.srcObject) {
+        const stream = localVideo.srcObject;
+        stream.getTracks().forEach(track => {
+            if (track.readyState === 'ended') {
+                console.warn('本地轨道已结束:', track.kind);
+            }
+        });
+    }
+    
+    // 检查远程视频
+    if (remoteVideo.srcObject) {
+        const stream = remoteVideo.srcObject;
+        stream.getTracks().forEach(track => {
+            if (track.readyState === 'ended') {
+                console.warn('远程轨道已结束:', track.kind);
+                stream.removeTrack(track);
+            }
+        });
+        
+        // 如果远程视频暂停，尝试播放
+        if (remoteVideo.paused && stream.getVideoTracks().length > 0) {
+            remoteVideo.play().catch(err => {
+                console.error('自动恢复播放远程视频失败:', err);
+            });
+        }
+    }
+}, 5000); // 每5秒检查一次
 
