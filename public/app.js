@@ -24,6 +24,7 @@ const stopVideoBtn = document.getElementById('stopVideoBtn');
 const startAudioBtn = document.getElementById('startAudioBtn');
 const stopAudioBtn = document.getElementById('stopAudioBtn');
 const fullscreenBtn = document.getElementById('fullscreenBtn');
+const exitFullscreenBtn = document.getElementById('exitFullscreenBtn');
 const remoteVideoWrapper = document.querySelector('.remote-video-wrapper');
 
 // WebRTC 配置
@@ -149,58 +150,146 @@ socket.on('reconnect', (attemptNumber) => {
 });
 
 // 全屏功能
+let isFullscreen = false;
+
 if (fullscreenBtn) {
     fullscreenBtn.addEventListener('click', () => {
-        toggleFullscreen();
+        enterFullscreen();
     });
 }
 
-function toggleFullscreen() {
+if (exitFullscreenBtn) {
+    exitFullscreenBtn.addEventListener('click', () => {
+        exitFullscreen();
+    });
+}
+
+function enterFullscreen() {
     if (!remoteVideoWrapper) return;
     
-    if (!document.fullscreenElement && !remoteVideoWrapper.classList.contains('fullscreen')) {
-        // 进入全屏
-        if (remoteVideoWrapper.requestFullscreen) {
-            remoteVideoWrapper.requestFullscreen().catch(err => {
-                console.log('全屏请求失败:', err);
-                // 使用CSS全屏作为备选方案
-                remoteVideoWrapper.classList.add('fullscreen');
-            });
-        } else if (remoteVideoWrapper.webkitRequestFullscreen) {
-            remoteVideoWrapper.webkitRequestFullscreen();
-        } else if (remoteVideoWrapper.mozRequestFullScreen) {
-            remoteVideoWrapper.mozRequestFullScreen();
-        } else if (remoteVideoWrapper.msRequestFullscreen) {
-            remoteVideoWrapper.msRequestFullscreen();
-        } else {
+    if (remoteVideoWrapper.requestFullscreen) {
+        remoteVideoWrapper.requestFullscreen().then(() => {
+            isFullscreen = true;
+            updateFullscreenButton();
+        }).catch(err => {
+            console.log('全屏请求失败:', err);
+            // 使用CSS全屏作为备选方案
             remoteVideoWrapper.classList.add('fullscreen');
+            isFullscreen = true;
+            updateFullscreenButton();
+        });
+    } else if (remoteVideoWrapper.webkitRequestFullscreen) {
+        remoteVideoWrapper.webkitRequestFullscreen();
+        isFullscreen = true;
+        updateFullscreenButton();
+    } else if (remoteVideoWrapper.mozRequestFullScreen) {
+        remoteVideoWrapper.mozRequestFullScreen();
+        isFullscreen = true;
+        updateFullscreenButton();
+    } else if (remoteVideoWrapper.msRequestFullscreen) {
+        remoteVideoWrapper.msRequestFullscreen();
+        isFullscreen = true;
+        updateFullscreenButton();
+    } else {
+        // 使用CSS全屏作为备选方案
+        remoteVideoWrapper.classList.add('fullscreen');
+        isFullscreen = true;
+        updateFullscreenButton();
+    }
+}
+
+function exitFullscreen() {
+    if (!remoteVideoWrapper) return;
+    
+    if (document.exitFullscreen) {
+        document.exitFullscreen().then(() => {
+            isFullscreen = false;
+            updateFullscreenButton();
+        }).catch(err => {
+            console.log('退出全屏失败:', err);
+        });
+    } else if (document.webkitExitFullscreen) {
+        document.webkitExitFullscreen();
+        isFullscreen = false;
+        updateFullscreenButton();
+    } else if (document.mozCancelFullScreen) {
+        document.mozCancelFullScreen();
+        isFullscreen = false;
+        updateFullscreenButton();
+    } else if (document.msExitFullscreen) {
+        document.msExitFullscreen();
+        isFullscreen = false;
+        updateFullscreenButton();
+    }
+    
+    remoteVideoWrapper.classList.remove('fullscreen');
+    isFullscreen = false;
+    updateFullscreenButton();
+}
+
+// 更新全屏按钮图标和提示
+function updateFullscreenButton() {
+    // 只有在有远程视频时才显示按钮
+    const hasRemoteVideo = remoteVideo && remoteVideo.srcObject && 
+                          remoteVideo.srcObject.getVideoTracks().length > 0;
+    
+    if (!hasRemoteVideo) {
+        // 没有远程视频，隐藏所有按钮
+        if (fullscreenBtn) fullscreenBtn.style.display = 'none';
+        if (exitFullscreenBtn) exitFullscreenBtn.style.display = 'none';
+        return;
+    }
+    
+    if (isFullscreen) {
+        // 全屏模式：显示缩小按钮（✕），隐藏放大按钮
+        if (fullscreenBtn) {
+            fullscreenBtn.style.display = 'none';
+        }
+        if (exitFullscreenBtn) {
+            exitFullscreenBtn.style.display = 'flex';
         }
     } else {
-        // 退出全屏
-        if (document.exitFullscreen) {
-            document.exitFullscreen();
-        } else if (document.webkitExitFullscreen) {
-            document.webkitExitFullscreen();
-        } else if (document.mozCancelFullScreen) {
-            document.mozCancelFullScreen();
-        } else if (document.msExitFullscreen) {
-            document.msExitFullscreen();
+        // 普通模式：显示放大按钮（⛶），隐藏缩小按钮
+        if (fullscreenBtn) {
+            fullscreenBtn.style.display = 'flex';
         }
-        remoteVideoWrapper.classList.remove('fullscreen');
+        if (exitFullscreenBtn) {
+            exitFullscreenBtn.style.display = 'none';
+        }
     }
 }
 
 // 监听全屏状态变化
 document.addEventListener('fullscreenchange', () => {
+    isFullscreen = !!document.fullscreenElement;
     if (!document.fullscreenElement) {
         remoteVideoWrapper?.classList.remove('fullscreen');
     }
+    updateFullscreenButton();
 });
 
 document.addEventListener('webkitfullscreenchange', () => {
+    isFullscreen = !!document.webkitFullscreenElement;
     if (!document.webkitFullscreenElement) {
         remoteVideoWrapper?.classList.remove('fullscreen');
     }
+    updateFullscreenButton();
+});
+
+document.addEventListener('mozfullscreenchange', () => {
+    isFullscreen = !!document.mozFullScreenElement;
+    if (!document.mozFullScreenElement) {
+        remoteVideoWrapper?.classList.remove('fullscreen');
+    }
+    updateFullscreenButton();
+});
+
+document.addEventListener('MSFullscreenChange', () => {
+    isFullscreen = !!document.msFullscreenElement;
+    if (!document.msFullscreenElement) {
+        remoteVideoWrapper?.classList.remove('fullscreen');
+    }
+    updateFullscreenButton();
 });
 
 // 移动端优化：防止页面缩放
@@ -632,9 +721,7 @@ function createPeerConnection(targetUserId, isInitiator = true) {
             });
             
             // 显示全屏按钮
-            if (fullscreenBtn) {
-                fullscreenBtn.style.display = 'block';
-            }
+            updateFullscreenButton();
         }
         
         // 添加视频加载事件
@@ -776,9 +863,8 @@ socket.on('offer', async (data) => {
                     console.error('播放远程视频失败:', err);
                 });
                 
-                if (fullscreenBtn) {
-                    fullscreenBtn.style.display = 'block';
-                }
+                // 显示全屏按钮
+                updateFullscreenButton();
             }
         };
         

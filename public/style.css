@@ -171,26 +171,50 @@ header h1 {
     pointer-events: none;
 }
 
-.fullscreen-btn {
+.fullscreen-btn,
+.exit-fullscreen-btn {
     position: absolute;
     bottom: 8px;
     right: 8px;
-    background: rgba(0, 0, 0, 0.6);
+    background: rgba(0, 0, 0, 0.7);
     color: white;
-    border: none;
-    border-radius: 4px;
-    padding: 6px 10px;
-    font-size: 16px;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    border-radius: 50%;
+    width: 40px;
+    height: 40px;
+    font-size: 20px;
     cursor: pointer;
     z-index: 10;
     -webkit-tap-highlight-color: transparent;
     touch-action: manipulation;
-    display: none; /* 默认隐藏，有远程视频时显示 */
-    transition: background 0.2s;
+    display: none; /* 默认隐藏，有远程视频时显示，通过JS控制 */
+    transition: all 0.2s;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
 }
 
-.fullscreen-btn:active {
-    background: rgba(0, 0, 0, 0.8);
+.fullscreen-btn {
+    font-size: 18px;
+}
+
+.exit-fullscreen-btn {
+    font-size: 22px;
+    font-weight: bold;
+}
+
+.fullscreen-btn:hover,
+.exit-fullscreen-btn:hover {
+    background: rgba(0, 0, 0, 0.9);
+    border-color: rgba(255, 255, 255, 0.5);
+    transform: scale(1.1);
+}
+
+.fullscreen-btn:active,
+.exit-fullscreen-btn:active {
+    background: rgba(0, 0, 0, 1);
+    transform: scale(0.95);
 }
 
 #localVideo {
