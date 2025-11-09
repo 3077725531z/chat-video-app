@@ -61,6 +61,7 @@ header h1 {
     max-width: 200px;
     outline: none;
     -webkit-appearance: none;
+    appearance: none;
 }
 
 #joinBtn {
@@ -112,8 +113,49 @@ header h1 {
     min-height: 0;
 }
 
-.video-section h2, .chat-section h2 {
+.video-section h2 {
     display: none;
+}
+
+.chat-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+}
+
+.chat-header h2 {
+    margin: 0;
+    font-size: 14px;
+    color: #333;
+    font-weight: 600;
+}
+
+.clear-chat-btn {
+    background: rgba(255, 255, 255, 0.8);
+    border: 1px solid #e0e0e0;
+    font-size: 16px;
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: 4px;
+    transition: all 0.2s;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 32px;
+    height: 28px;
+}
+
+.clear-chat-btn:hover {
+    background: rgba(255, 77, 77, 0.1);
+    border-color: #ff4d4d;
+}
+
+.clear-chat-btn:active {
+    background: rgba(255, 77, 77, 0.2);
+    transform: scale(0.95);
 }
 
 .video-container {
@@ -330,6 +372,7 @@ header h1 {
     font-size: 14px;
     outline: none;
     -webkit-appearance: none;
+    appearance: none;
     background: white;
 }
 
@@ -473,10 +516,14 @@ header h1 {
         order: 2;
     }
 
-    .video-section h2, .chat-section h2 {
+    .video-section h2 {
         display: block;
         margin-bottom: 15px;
         color: #333;
+        font-size: 18px;
+    }
+    
+    .chat-header h2 {
         font-size: 18px;
     }
 

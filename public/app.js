@@ -26,6 +26,7 @@ const stopAudioBtn = document.getElementById('stopAudioBtn');
 const fullscreenBtn = document.getElementById('fullscreenBtn');
 const exitFullscreenBtn = document.getElementById('exitFullscreenBtn');
 const remoteVideoWrapper = document.querySelector('.remote-video-wrapper');
+const clearChatBtn = document.getElementById('clearChatBtn');
 
 // WebRTC 配置
 const rtcConfiguration = {
@@ -52,13 +53,21 @@ function loadUsername() {
     }
 }
 
-// 页面加载时恢复用户名和消息
+// 页面加载时初始化
 function initializeApp() {
     // 恢复用户名
     const savedUsername = loadUsername();
     if (savedUsername && usernameInput) {
         usernameInput.value = savedUsername;
     }
+    
+    // 清空聊天窗口
+    if (chatMessages) {
+        chatMessages.innerHTML = '';
+    }
+    
+    // 清除本地存储的聊天记录（刷新后重新开始）
+    clearMessagesStorage();
 }
 
 // DOM加载完成后初始化
@@ -96,8 +105,31 @@ joinBtn.addEventListener('click', () => {
         startAudioBtn.disabled = false;
         
         addMessage('系统', '你已加入聊天室', true);
+        
+        // 显示清除聊天记录按钮
+        if (clearChatBtn) {
+            clearChatBtn.style.display = 'block';
+        }
     }
 });
+
+// 清除聊天记录
+if (clearChatBtn) {
+    clearChatBtn.addEventListener('click', () => {
+        if (confirm('确定要清除所有聊天记录吗？')) {
+            // 清空聊天窗口
+            if (chatMessages) {
+                chatMessages.innerHTML = '';
+            }
+            // 清除本地存储
+            clearMessagesStorage();
+            addMessage('系统', '聊天记录已清除', true);
+            
+            // 通知服务器清除消息（可选）
+            // socket.emit('clear-messages');
+        }
+    });
+}
 
 // Socket连接管理
 let reconnectAttempts = 0;
@@ -358,7 +390,7 @@ function loadMessagesFromStorage() {
     }
 }
 
-// 保存消息到localStorage
+// 保存消息到localStorage（仅用于当前会话）
 function saveMessageToStorage(message) {
     try {
         let messages = loadMessagesFromStorage();
@@ -373,6 +405,8 @@ function saveMessageToStorage(message) {
     }
 }
 
+// 注意：不在beforeunload中清除，让服务器决定是否保留历史消息
+
 // 清空本地消息
 function clearMessagesStorage() {
     try {
@@ -382,64 +416,38 @@ function clearMessagesStorage() {
     }
 }
 
-// 恢复消息（在收到服务器消息后调用）
+// 恢复消息（已禁用）
 function restoreMessages() {
-    if (!chatMessages) return;
+    // 不再使用此函数，刷新后只显示服务器发送的历史消息
+}
+
+// 接收历史消息
+socket.on('history-messages', (messages) => {
+    // 清空现有消息
+    if (chatMessages) {
+        chatMessages.innerHTML = '';
+    }
     
-    const messages = loadMessagesFromStorage();
-    if (messages.length > 0 && chatMessages.children.length === 0) {
+    // 刷新后不显示历史消息，只显示新消息
+    // 如果用户想要查看历史消息，可以取消下面的注释
+    /*
+    if (messages && messages.length > 0) {
         messages.forEach(msg => {
             const isOwn = msg.username === currentUsername;
             addMessage(msg.username, msg.message, isOwn, msg.timestamp, false);
         });
     }
-}
-
-// 接收历史消息
-socket.on('history-messages', (messages) => {
-    // 先清空现有消息（避免重复）
-    chatMessages.innerHTML = '';
+    */
     
-    // 合并服务器消息和本地消息
-    const localMessages = loadMessagesFromStorage();
-    const allMessages = [...localMessages, ...messages];
-    
-    // 去重（基于时间戳和内容）
-    const uniqueMessages = [];
-    const seen = new Set();
-    allMessages.forEach(msg => {
-        const key = `${msg.username}-${msg.message}-${msg.timestamp}`;
-        if (!seen.has(key)) {
-            seen.add(key);
-            uniqueMessages.push(msg);
-        }
-    });
-    
-    // 按时间排序
-    uniqueMessages.sort((a, b) => {
-        const timeA = new Date(a.date || a.timestamp).getTime();
-        const timeB = new Date(b.date || b.timestamp).getTime();
-        return timeA - timeB;
-    });
-    
-    // 显示消息
-    uniqueMessages.forEach(msg => {
-        const isOwn = msg.username === currentUsername;
-        addMessage(msg.username, msg.message, isOwn, msg.timestamp, false);
-    });
-    
-    // 更新本地存储
-    if (uniqueMessages.length > 0) {
-        localStorage.setItem(MESSAGES_STORAGE_KEY, JSON.stringify(uniqueMessages.slice(-MAX_STORED_MESSAGES)));
-    }
+    // 刷新后聊天记录为空，只显示新加入后的消息
 });
 
 // 接收聊天消息
 socket.on('chat-message', (data) => {
     const isOwn = data.username === currentUsername;
     addMessage(data.username, data.message, isOwn, data.timestamp);
-    // 保存到本地存储
-    saveMessageToStorage(data);
+    // 不保存到本地存储，刷新后会清除
+    // 消息由服务器保存，刷新后会从服务器加载
 });
 
 // 添加消息到聊天窗口
@@ -962,14 +970,21 @@ document.addEventListener('visibilitychange', () => {
 
 // 页面关闭时清理
 window.addEventListener('beforeunload', () => {
+    // 清理媒体流
     if (localStream) {
         localStream.getTracks().forEach(track => track.stop());
     }
+    
+    // 清理WebRTC连接
     peerConnections.forEach((pc) => {
         pc.close();
     });
     peerConnections.clear();
+    
+    // 断开Socket连接
     socket.disconnect();
+    
+    // 注意：不清除聊天记录，让用户刷新后可以看到服务器保存的历史消息
 });
 
 // 定期检查视频流状态

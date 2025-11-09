@@ -66,8 +66,10 @@ io.on('connection', (socket) => {
     users.set(socket.id, username);
     socket.username = username;
     
-    // 发送历史消息给新用户
-    socket.emit('history-messages', messages.slice(-50)); // 发送最近50条消息
+    // 不发送历史消息，刷新后聊天记录为空
+    // 如果需要显示历史消息，取消下面的注释
+    // socket.emit('history-messages', messages.slice(-50)); // 发送最近50条消息
+    socket.emit('history-messages', []); // 发送空数组，不显示历史消息
     
     // 通知其他用户
     socket.broadcast.emit('user-joined', {

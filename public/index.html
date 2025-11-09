@@ -59,7 +59,10 @@
 
             <!-- 聊天区域 -->
             <div class="chat-section">
-                <h2>聊天消息</h2>
+                <div class="chat-header">
+                    <h2>聊天消息</h2>
+                    <button id="clearChatBtn" class="clear-chat-btn" title="清除聊天记录" style="display: none;">🗑️</button>
+                </div>
                 <div class="chat-messages" id="chatMessages"></div>
                 <div class="chat-input">
                     <input type="text" id="messageInput" placeholder="输入消息..." disabled>
