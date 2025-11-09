@@ -1,0 +1,67 @@
+==========================================
+  GitHub连接问题 - 快速解决方案
+==========================================
+
+问题：Failed to connect to github.com port 443
+
+==========================================
+方案1：使用SSH连接（最推荐）
+==========================================
+
+1. 更改远程仓库地址：
+   git remote set-url origin git@github.com:3077725531z/chat-video-app.git
+
+2. 如果没有SSH密钥，先生成：
+   ssh-keygen -t ed25519 -C "your_email@example.com"
+   （一直按回车使用默认设置）
+
+3. 复制公钥：
+   cat ~/.ssh/id_ed25519.pub
+   （Windows: type C:\Users\你的用户名\.ssh\id_ed25519.pub）
+
+4. 添加到GitHub：
+   - 访问 https://github.com/settings/keys
+   - 点击 "New SSH key"
+   - 粘贴公钥
+
+5. 测试连接：
+   ssh -T git@github.com
+
+6. 推送：
+   git push
+
+==========================================
+方案2：检查网络
+==========================================
+
+1. 在浏览器打开 https://github.com
+   - 如果打不开，说明网络有问题
+   - 尝试切换网络（手机热点）
+
+2. 尝试使用代理（如果需要）：
+   git config --global http.proxy http://127.0.0.1:7890
+   git config --global https.proxy http://127.0.0.1:7890
+
+==========================================
+方案3：使用GitHub Desktop
+==========================================
+
+1. 下载：https://desktop.github.com
+2. 安装并登录
+3. 打开项目
+4. 点击 "Push origin"
+
+==========================================
+方案4：增加超时时间
+==========================================
+
+git config --global http.postBuffer 524288000
+git config --global http.lowSpeedTime 999999
+
+然后再次尝试：
+git push
+
+==========================================
+
+详细说明请查看：GitHub连接问题解决.md
+
